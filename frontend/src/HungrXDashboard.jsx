@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = "https://hungrxonboarding.onrender.com";
 
 const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const [totalCalories, setTotalCalories] = useState(0);
