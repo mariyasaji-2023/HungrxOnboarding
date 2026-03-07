@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import HungrXOnboarding from "./HungrXOnboarding";
 import HungrXDashboard from "./HungrXDashboard";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = "https://hungrxonboarding.onrender.com";
 
 function App() {
   const [screen, setScreen] = useState("loading");
