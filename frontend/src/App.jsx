@@ -4,10 +4,11 @@ import HungrXDashboard from "./HungrXDashboard";
 import HungrXLogin from "./HungrXLogin";
 
 function App() {
-  // sessionStorage persists on refresh but clears when tab/browser closes
   const [screen, setScreen] = useState(() => {
-    return sessionStorage.getItem("hungrxSession") ? "dashboard" : "login";
+    if (sessionStorage.getItem("hungrxSession")) return "dashboard";
+    return "onboarding";
   });
+
   const [userData, setUserData] = useState(() => {
     const saved = sessionStorage.getItem("hungrxUserData");
     return saved ? JSON.parse(saved) : null;
@@ -17,9 +18,9 @@ function App() {
   const handleLogout = () => {
     sessionStorage.removeItem("hungrxSession");
     sessionStorage.removeItem("hungrxUserData");
+    localStorage.removeItem("hungrxUserId");
     setUserData(null);
-    setOnboardingPrefill({});
-    setScreen("login");
+    setScreen("onboarding");
   };
 
   if (screen === "dashboard")
@@ -28,29 +29,23 @@ function App() {
   if (screen === "login")
     return (
       <HungrXLogin
+        prefillName={onboardingPrefill?.name || ""}
         onLogin={(data) => {
           sessionStorage.setItem("hungrxSession", "1");
           sessionStorage.setItem("hungrxUserData", JSON.stringify(data));
-          localStorage.setItem("hungrxUserId", data.userId); // keep for API calls
+          localStorage.setItem("hungrxUserId", data.userId);
           setUserData(data);
           setScreen("dashboard");
-        }}
-        onNewUser={(credentials) => {
-          setOnboardingPrefill(credentials);
-          setScreen("onboarding");
         }}
       />
     );
 
   return (
     <HungrXOnboarding
-      prefill={onboardingPrefill}
+      prefill={{}}
       onComplete={(data) => {
-        sessionStorage.setItem("hungrxSession", "1");
-        sessionStorage.setItem("hungrxUserData", JSON.stringify(data));
-        localStorage.setItem("hungrxUserId", data.userId);
-        setUserData(data);
-        setScreen("dashboard");
+        setOnboardingPrefill({ name: data?.name || "" });
+        setScreen("login");
       }}
     />
   );

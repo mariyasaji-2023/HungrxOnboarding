@@ -23,13 +23,11 @@ const userSchema = new mongoose.Schema(
     },
     age: {
       type: Number,
-      required: [true, "Age is required"],
       min: [1, "Age must be at least 1"],
       max: [150, "Age must be under 150"],
     },
     gender: {
       type: String,
-      required: [true, "Gender is required"],
       enum: {
         values: ["Male", "Female", "Other"],
         message: "{VALUE} is not a valid gender option",
@@ -37,13 +35,11 @@ const userSchema = new mongoose.Schema(
     },
     height: {
       type: Number, // in cm
-      required: [true, "Height is required"],
       min: [50, "Height must be at least 50 cm"],
       max: [300, "Height must be under 300 cm"],
     },
     weight: {
       type: Number, // in kg
-      required: [true, "Weight is required"],
       min: [10, "Weight must be at least 10 kg"],
       max: [500, "Weight must be under 500 kg"],
     },
@@ -51,7 +47,6 @@ const userSchema = new mongoose.Schema(
     // ── Goals ──────────────────────────────────────────────────
     primaryGoal: {
       type: String,
-      required: [true, "Primary goal is required"],
       enum: {
         values: ["Lose Weight", "Gain Weight", "Maintain Weight"],
         message: "{VALUE} is not a valid primary goal",
@@ -71,7 +66,6 @@ const userSchema = new mongoose.Schema(
     // ── Lifestyle ──────────────────────────────────────────────
     activityLevel: {
       type: String,
-      required: [true, "Activity level is required"],
       enum: {
         values: [
           "Sedentary",
@@ -226,5 +220,5 @@ userSchema.methods.getMacroTargets = function () {
   };
 };
 
-const User = mongoose.model("User", userSchema);
+const User = mongoose.models.User || mongoose.model("User", userSchema);
 module.exports = User;

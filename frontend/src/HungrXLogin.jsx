@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 
 const BACKEND_URL = "https://hungrxonboarding.onrender.com";
 
-const HungrXLogin = ({ onLogin, onNewUser }) => {
-  const [name, setName] = useState("");
+const HungrXLogin = ({ onLogin, prefillName = "" }) => {
+  const [name, setName] = useState(prefillName);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,8 +34,6 @@ const HungrXLogin = ({ onLogin, onNewUser }) => {
       if (json.success) {
         localStorage.setItem("hungrxUserId", json.data.userId);
         onLogin && onLogin(json.data);
-      } else if (json.code === "USER_NOT_FOUND") {
-        onNewUser && onNewUser({ name: name.trim(), password });
       } else {
         setError(json.message || "invalid credentials.");
       }
@@ -142,13 +140,16 @@ const HungrXLogin = ({ onLogin, onNewUser }) => {
                     style={{ width: "100%", padding: "16px", background: "transparent", border: `1px solid ${loading ? "#3e3e42" : "#bada55"}`, borderRadius: "6px", color: loading ? "#3e3e42" : "#bada55", fontSize: "13px", fontWeight: 500, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em", transition: "all 0.2s ease", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                     {loading ? (
                       <>
-                        <span style={{ fontSize: "9px", color: "#858585" }}>// authenticating</span>
+                        <span style={{ fontSize: "9px", color: "#858585" }}>// checking</span>
                         <div style={{ display: "flex", gap: "3px" }}>
                           {[0,1,2].map(i => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}
                         </div>
                       </>
-                    ) : "login()"}
+                    ) : "continue()"}
                   </button>
+                  <div style={{ fontSize: "9px", color: "#555", textAlign: "center", marginTop: "10px" }}>
+                    // use the name + password you set during onboarding
+                  </div>
                 </div>
               </form>
 

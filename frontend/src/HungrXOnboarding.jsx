@@ -137,17 +137,21 @@ const HungrXOnboarding = ({ onComplete, prefill = {} }) => {
       const res = await fetch("https://hungrxonboarding.onrender.com/api/users/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...userData, password: prefill.password || undefined }),
+        body: JSON.stringify(userData),
       });
-      const result = await res.json();
-      if (result.success) {
-        localStorage.setItem("hungrxUserId", result.data.userId);
-        onComplete && onComplete({ ...userData, ...result.data });
+      if (res.ok) {
+        try {
+          const result = await res.json();
+          if (result?.data?.userId) localStorage.setItem("hungrxUserId", result.data.userId);
+        } catch (_) {}
+        onComplete && onComplete({ name: userData.name });
       } else {
-        setApiError("Something went wrong. Please try again.");
+        let msg = "Something went wrong.";
+        try { const r = await res.json(); msg = r.message || msg; } catch (_) {}
+        setApiError(msg);
       }
     } catch (err) {
-      setApiError("Cannot connect to server. Please try again.");
+      setApiError("Cannot connect to server: " + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -492,8 +496,8 @@ const HungrXOnboarding = ({ onComplete, prefill = {} }) => {
 
               {isComplete && (
                 <div className="complete-wrap">
-                  <h2 className="complete-title">Welcome, {userData.name}.</h2>
-                  <p className="complete-sub">Your journey begins.</p>
+                  <h2 className="complete-title">You're all set, {userData.name}.</h2>
+                  <p className="complete-sub">One last step — sign in to begin.</p>
                   {apiError && <p className="api-error">{apiError}</p>}
                   <button
                     className="start-btn"
@@ -501,7 +505,7 @@ const HungrXOnboarding = ({ onComplete, prefill = {} }) => {
                     disabled={isLoading}
                     style={{ opacity: isLoading ? 0.7 : 1 }}
                   >
-                    {isLoading ? "Saving..." : "Get Started"}
+                    {isLoading ? "saving..." : "go to login →"}
                   </button>
                 </div>
               )}

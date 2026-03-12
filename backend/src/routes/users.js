@@ -92,11 +92,17 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ success: false, message: "Name and password required." });
 
     const user = await User.findOne({ name: { $regex: new RegExp(`^${name}$`, "i") } });
-    if (!user)
-      return res.status(404).json({ success: false, code: "USER_NOT_FOUND", message: "No account found. Let's set one up!" });
 
-    if (!user.password || user.password !== password)
-      return res.status(401).json({ success: false, code: "WRONG_PASSWORD", message: "Incorrect password." });
+    if (!user)
+      return res.status(404).json({ success: false, message: "No account found. Please complete onboarding first." });
+
+    // First login after onboarding — save the password they choose
+    if (!user.password) {
+      user.password = password;
+      await user.save();
+    } else if (user.password !== password) {
+      return res.status(401).json({ success: false, message: "Incorrect password." });
+    }
 
     res.json({
       success: true,
