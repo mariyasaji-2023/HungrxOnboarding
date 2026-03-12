@@ -1,6 +1,186 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-const BACKEND_URL = "https://hungrxonboarding.onrender.com";
+// ── RTL cursor fix ───────────────────────────────────────────────────────────
+const useRtlString = (setValue) => {
+  const ref = useRef(null);
+  const onChange = (e) => {
+    const val = e.target.value;
+    setValue(val);
+    setTimeout(() => {
+      const el = ref.current;
+      if (el) { const len = el.value.length; el.setSelectionRange(len, len); }
+    }, 0);
+  };
+  return { ref, onChange };
+};
+
+const extractNum = (str) => {
+  const m = String(str).match(/[\d.]+/);
+  return m ? parseFloat(m[0]) : null;
+};
+
+// ── EditCard ─────────────────────────────────────────────────────────────────
+const EditCard = ({ item, onDone, onRemove }) => {
+  const [name, setName] = useState(item.name);
+  const [portion, setPortion] = useState(item.portion);
+  const [calories, setCalories] = useState(String(item.calories));
+  const [calEdited, setCalEdited] = useState(false);
+  const baseCalories = useRef(item.calories);
+  const basePortion = useRef(extractNum(item.portion));
+  const nameRtl = useRtlString(setName);
+  const portionRtl = useRtlString((v) => {
+    setPortion(v);
+    if (!calEdited) {
+      const base = basePortion.current;
+      const newNum = extractNum(v);
+      if (base && base > 0 && newNum && newNum > 0)
+        setCalories(String(Math.round(baseCalories.current * (newNum / base))));
+    }
+  });
+  const calRtl = useRtlString((v) => { setCalories(v.replace(/[^0-9]/g, "")); setCalEdited(true); });
+  const unit = item.portion.replace(/[\d.]+\s*/g, "").trim() || "";
+  const inp = { background: "#1e1e1e", border: "1px solid #3e3e42", borderRadius: "4px", outline: "none", fontFamily: "'JetBrains Mono', monospace", padding: "9px 10px", direction: "ltr", textAlign: "left", width: "100%" };
+  return (
+    <div style={{ background: "#252526", border: "1px solid #569cd6", borderRadius: "6px", overflow: "hidden", fontFamily: "'JetBrains Mono', monospace" }}>
+      <div style={{ padding: "13px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #2a2a2a" }}>
+        <span style={{ fontSize: "12px", color: "#d4d4d4" }}>{item.name}</span>
+        <span style={{ fontSize: "9px", color: "#569cd6", letterSpacing: "0.08em" }}>editing</span>
+      </div>
+      <div style={{ padding: "12px 14px 14px" }}>
+        <div style={{ marginBottom: "10px" }}>
+          <div style={{ fontSize: "8px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "5px" }}>NAME</div>
+          <input ref={nameRtl.ref} dir="ltr" value={name} onChange={nameRtl.onChange} onKeyDown={e => e.stopPropagation()} style={{ ...inp, color: "#d4d4d4", fontSize: "13px" }} />
+        </div>
+        <div style={{ display: "flex", gap: "8px", marginBottom: "6px" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "8px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "5px" }}>PORTION {unit ? <span style={{ color: "#858585", fontSize: "8px" }}>({unit})</span> : ""}</div>
+            <input ref={portionRtl.ref} dir="ltr" value={portion} onChange={portionRtl.onChange} onKeyDown={e => e.stopPropagation()} style={{ ...inp, color: "#d4d4d4", fontSize: "12px" }} />
+          </div>
+          <div style={{ width: "84px" }}>
+            <div style={{ fontSize: "8px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "5px" }}>CALORIES</div>
+            <input ref={calRtl.ref} dir="ltr" inputMode="numeric" value={calories} onChange={calRtl.onChange} onKeyDown={e => e.stopPropagation()} style={{ ...inp, color: "#bada55", fontSize: "14px" }} />
+          </div>
+        </div>
+        {!calEdited && basePortion.current
+          ? <div style={{ fontSize: "8px", color: "#858585", marginBottom: "12px" }}>// calories scale automatically with portion</div>
+          : calEdited && <button onClick={() => { setCalEdited(false); const n = extractNum(portion); const b = basePortion.current; if (b && n) setCalories(String(Math.round(baseCalories.current * (n / b)))); }} style={{ background: "none", border: "none", color: "#569cd6", fontSize: "8px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", marginBottom: "12px", padding: 0 }}>// reset to auto-scale</button>
+        }
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button onClick={() => onDone({ ...item, name, portion, calories: parseInt(calories || "0", 10) })} style={{ flex: 1, padding: "10px", background: "transparent", border: "1px solid #bada55", borderRadius: "4px", color: "#bada55", fontSize: "11px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace" }}>done</button>
+          <button onClick={onRemove} style={{ padding: "10px 16px", background: "transparent", border: "1px solid #f48771", borderRadius: "4px", color: "#f48771", fontSize: "11px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace" }}>remove</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── useLogFeature ────────────────────────────────────────────────────────────
+const useLogFeature = (addItem, setCurrentView) => {
+  const [logParsing, setLogParsing] = useState(false);
+  const [logError, setLogError] = useState("");
+  const [logResults, setLogResults] = useState([]);
+  const [logSelected, setLogSelected] = useState({});
+  const [logInput, setLogInput] = useState("");
+  const [logConfirmed, setLogConfirmed] = useState(false);
+  const [logEditing, setLogEditing] = useState(null);
+  const logRtl = useRtlString((v) => { setLogInput(v); setLogError(""); if (logResults.length > 0) { setLogResults([]); setLogSelected({}); } });
+  const logInputRef = logRtl.ref;
+  const parseLog = async () => {
+    if (!logInput.trim() || logParsing) return;
+    setLogParsing(true); setLogError(""); setLogResults([]); setLogConfirmed(false);
+    try {
+      const response = await fetch(`http://localhost:5000/api/logparse/parse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: logInput }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error);
+      const items = data.items;
+      const sel = {}; items.forEach((_, i) => (sel[i] = true));
+      setLogSelected(sel); setLogResults(items);
+    } catch { setLogError("Couldn't read that — try rewording it."); }
+    finally { setLogParsing(false); }
+  };
+  const confirmLog = () => {
+    logResults.forEach((item, i) => { if (logSelected[i]) addItem(item, "AI Log"); });
+    setLogConfirmed(true);
+    setTimeout(() => { setLogInput(""); setLogResults([]); setLogSelected({}); setLogConfirmed(false); setCurrentView("main"); }, 1200);
+  };
+  const resetLog = () => {
+    setLogInput(""); setLogResults([]); setLogSelected({}); setLogError("");
+    setLogParsing(false); setLogConfirmed(false); setLogEditing(null);
+    setTimeout(() => logInputRef.current?.focus(), 80);
+  };
+  return { logParsing, logError, logResults, setLogResults, logSelected, setLogSelected, logInput, logConfirmed, logEditing, setLogEditing, logRtl, logInputRef, parseLog, confirmLog, resetLog };
+};
+
+// ── LogView ──────────────────────────────────────────────────────────────────
+const LogView = ({ log, setCurrentView }) => {
+  const { logParsing, logError, logResults, setLogResults, logSelected, setLogSelected, logInput, logConfirmed, logEditing, setLogEditing, logRtl, logInputRef, parseLog, confirmLog, resetLog } = log;
+  const hour = new Date().getHours();
+  const meal = hour < 11 ? "breakfast" : hour < 15 ? "lunch" : hour < 18 ? "snack" : "dinner";
+  const hasResults = logResults.length > 0 && !logParsing;
+  const selectedItems = logResults.filter((_, i) => logSelected[i]);
+  const totalCals = selectedItems.reduce((s, item) => s + item.calories, 0);
+  const btn = hasResults
+    ? logConfirmed ? { label: `✓  +${totalCals} cal logged`, color: "#6ec46e", border: "#6ec46e", action: null } : { label: "confirm →", color: "#bada55", border: "#bada55", action: confirmLog }
+    : logInput.trim() && !logParsing ? { label: "calculate →", color: "#bada55", border: "#bada55", action: parseLog }
+    : { label: "start typing...", color: "#3e3e42", border: "#3e3e42", action: null };
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "#1e1e1e", borderRadius: "inherit", display: "flex", flexDirection: "column", padding: "0 28px 32px", zIndex: 10, overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "24px", paddingBottom: "28px", flexShrink: 0 }}>
+        <span style={{ fontSize: "10px", color: "#569cd6", letterSpacing: "0.08em" }}><span style={{ color: "#858585" }}>// </span>{meal}</span>
+        <button onClick={() => { resetLog(); setCurrentView("options"); }} style={{ background: "none", border: "none", color: "#555", fontSize: "22px", cursor: "pointer", lineHeight: 1 }}>×</button>
+      </div>
+      <div style={{ fontSize: "28px", color: "#d4d4d4", fontWeight: 300, letterSpacing: "-0.02em", lineHeight: 1.15, marginBottom: "8px", flexShrink: 0 }}>what did<br />you eat?</div>
+      <div style={{ fontSize: "10px", color: "#569cd6", marginBottom: "24px", letterSpacing: "0.03em", flexShrink: 0 }}><span style={{ color: "#858585" }}>// </span>type naturally — include amounts for better accuracy</div>
+      <textarea
+        ref={logInputRef} value={logInput} dir="ltr" onChange={logRtl.onChange}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !hasResults && logEditing === null) { e.preventDefault(); parseLog(); } }}
+        placeholder={"a bowl of oats, banana,\nblack coffee, two eggs..."} rows={hasResults ? 2 : 4}
+        disabled={logParsing || logConfirmed}
+        style={{ background: "transparent", border: "none", outline: "none", color: "#bada55", fontSize: "16px", fontFamily: "'JetBrains Mono', monospace", resize: "none", lineHeight: 1.75, direction: "ltr", textAlign: "left", opacity: logParsing || logConfirmed ? 0.4 : 1, transition: "opacity 0.2s ease", width: "100%", flexShrink: 0 }}
+      />
+      {logParsing && (
+        <div style={{ marginTop: "20px", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+          <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em" }}>// calculating</span>
+          <div style={{ display: "flex", gap: "4px" }}>{[0,1,2].map((i) => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}</div>
+        </div>
+      )}
+      {hasResults && (
+        <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "6px", flexShrink: 0 }}>
+          <div style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em", marginBottom: "4px" }}>// tap to edit</div>
+          {logResults.map((item, i) => logEditing === i
+            ? <EditCard key={i} item={item}
+                onDone={(updated) => { setLogResults(prev => prev.map((it, idx) => idx === i ? updated : it)); setLogEditing(null); }}
+                onRemove={() => { setLogResults(prev => prev.filter((_, idx) => idx !== i)); setLogSelected(prev => { const n = {}; Object.keys(prev).forEach(k => { const ki = Number(k); if (ki < i) n[ki] = prev[k]; else if (ki > i) n[ki-1] = prev[k]; }); return n; }); setLogEditing(null); }}
+              />
+            : <div key={i} onClick={() => setLogEditing(i)} style={{ padding: "13px 14px", background: "#252526", border: "1px solid #3e3e42", borderRadius: "6px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "'JetBrains Mono', monospace" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "13px", color: "#d4d4d4", marginBottom: "2px" }}>{item.name}</div>
+                  <div style={{ fontSize: "9px", color: "#858585" }}>{item.portion}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ fontSize: "14px", color: "#bada55" }}>{item.calories}</span>
+                  <span style={{ color: "#3e3e42", fontSize: "12px" }}>›</span>
+                </div>
+              </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 2px", borderTop: "1px solid #2a2a2a", marginTop: "2px" }}>
+            <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.08em" }}>// total</span>
+            <span style={{ fontSize: "18px", color: "#bada55" }}>{totalCals} <span style={{ fontSize: "10px", color: "#858585" }}>cal</span></span>
+          </div>
+        </div>
+      )}
+      {logError && <div style={{ fontSize: "10px", color: "#f48771", marginTop: "12px", letterSpacing: "0.04em", flexShrink: 0 }}><span style={{ color: "#858585" }}>// </span>{logError}</div>}
+      <div style={{ flex: 1, minHeight: "20px" }} />
+      <button onClick={btn.action || undefined} disabled={!btn.action} style={{ width: "100%", padding: "18px", background: "transparent", border: `1px solid ${btn.border}`, borderRadius: "8px", color: btn.color, fontSize: "13px", fontWeight: 500, cursor: btn.action ? "pointer" : "default", fontFamily: "'JetBrains Mono', monospace", transition: "border-color 0.25s ease, color 0.25s ease", letterSpacing: "0.04em", flexShrink: 0 }}>{btn.label}</button>
+    </div>
+  );
+};
+
+const BACKEND_URL = "http://localhost:5000";
 
 const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const [totalCalories, setTotalCalories] = useState(0);
@@ -12,7 +192,6 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const [currentView, setCurrentView] = useState("main");
   const [currentRestaurant, setCurrentRestaurant] = useState(null);
   const [macrosOpen, setMacrosOpen] = useState(false);
-  const [microsOpen, setMicrosOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState(null);
   const [currentRecipe, setCurrentRecipe] = useState(null);
@@ -23,11 +202,35 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiError, setGeminiError] = useState("");
   const [geminiDetail, setGeminiDetail] = useState(null);
+  const [geminiAvailabilityRegion, setGeminiAvailabilityRegion] = useState("");
 
   const [userLocation, setUserLocation] = useState(null);
+  const [userCurrency, setUserCurrency] = useState("₹"); // default, updated after geocode
+
+  // Derive currency symbol from country name
+  const getCurrencySymbol = (country) => {
+    const map = {
+      "India": "₹", "United States": "$", "United Kingdom": "£",
+      "European Union": "€", "Germany": "€", "France": "€", "Italy": "€",
+      "Spain": "€", "Netherlands": "€", "Portugal": "€", "Belgium": "€",
+      "Austria": "€", "Ireland": "€", "Greece": "€", "Finland": "€",
+      "Japan": "¥", "China": "¥", "South Korea": "₩",
+      "Australia": "A$", "Canada": "C$", "New Zealand": "NZ$",
+      "Switzerland": "CHF", "Sweden": "kr", "Norway": "kr", "Denmark": "kr",
+      "Brazil": "R$", "Mexico": "MX$", "Singapore": "S$",
+      "United Arab Emirates": "AED", "Saudi Arabia": "SAR",
+      "South Africa": "R", "Nigeria": "₦", "Kenya": "KSh",
+      "Pakistan": "₨", "Bangladesh": "৳", "Sri Lanka": "Rs",
+      "Thailand": "฿", "Indonesia": "Rp", "Malaysia": "RM",
+      "Philippines": "₱", "Vietnam": "₫",
+      "Russia": "₽", "Turkey": "₺", "Argentina": "AR$",
+    };
+    return map[country] || "$";
+  };
 
   // ── grab() state ─────────────────────────────────────────────
   const [grabData, setGrabData] = useState(null);
+  const [grabCurrency, setGrabCurrency] = useState(userCurrency);
   const [grabLoading, setGrabLoading] = useState(false);
   const [grabError, setGrabError] = useState("");
 
@@ -40,6 +243,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const [restaurantsLoading, setRestaurantsLoading] = useState(false);
   const [restaurantsError, setRestaurantsError] = useState("");
   const [locationDenied, setLocationDenied] = useState(false);
+  const [rankContext, setRankContext] = useState(null);
 
   const tdeeCalories = userData?.dailyCalorieTarget || userData?.tdee || 2000;
   const proteinTarget = userData?.macroTargets?.protein || Math.round((tdeeCalories * 0.3) / 4);
@@ -95,7 +299,22 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       async (position) => {
         const { latitude, longitude } = position.coords;
         setUserLocation({ lat: latitude, lng: longitude });
-        // Save to DB — backend only writes if location changed
+
+        // Reverse geocode to get currency
+        try {
+          const apiKey = ""; // uses backend — just infer from profile location
+          const geoRes = await fetch(`${BACKEND_URL}/api/users/${userId}`);
+          const geoJson = await geoRes.json();
+          if (geoJson.success && geoJson.data?.location) {
+            // We'll get country from geocode via a lightweight approach
+            const gcRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+            const gcData = await gcRes.json();
+            const country = gcData?.address?.country;
+            if (country) setUserCurrency(getCurrencySymbol(country));
+          }
+        } catch { /* silent fail — keep default */ }
+
+        // Save to DB
         try {
           await fetch(`${BACKEND_URL}/api/users/${userId}/location`, {
             method: "PATCH",
@@ -117,6 +336,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
     setGeminiError("");
     setGeminiRecipes([]);
     setGeminiDetail(null);
+    setGeminiAvailabilityRegion("");
     try {
       const res = await fetch(`${BACKEND_URL}/api/cook/recipes`, {
         method: "POST",
@@ -126,6 +346,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       const json = await res.json();
       if (!json.success) throw new Error(json.message || "Failed");
       setGeminiRecipes(json.data.recipes || []);
+      setGeminiAvailabilityRegion(json.data.availability_region || "");
       setGeminiError("");
     } catch (e) {
       setGeminiError(e.message || "Failed to load recipes. Tap retry.");
@@ -167,6 +388,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.message || "Failed");
+      if (json.currency?.symbol) { setUserCurrency(json.currency.symbol); setGrabCurrency(json.currency.symbol); }
       setGrabData(json.data);
     } catch (e) {
       setGrabError(e.message || "Failed to load. Tap retry.");
@@ -202,6 +424,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       });
       const json = await res.json();
       if (json.success) {
+        if (json.currency?.symbol) setUserCurrency(json.currency.symbol);
         setMenuCache((prev) => ({ ...prev, [restaurant.id]: json.data }));
       }
     } catch (e) {
@@ -216,6 +439,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
     setRestaurantsLoading(true);
     setRestaurantsError("");
     setLocationDenied(false);
+    setRankContext(null);
 
     if (!navigator.geolocation) {
       setRestaurantsError("Geolocation not supported by your browser.");
@@ -240,6 +464,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
           if (sameLocation && notExpired) {
             console.log("📦 Restaurants from cache — no API call");
             setNearbyRestaurants(cached.list);
+            setRankContext(cached.rankContext || null);
             setRestaurantsLoading(false);
             return;
           }
@@ -254,25 +479,46 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
             }).catch(() => {});
           }
 
+          // Step 1 — fetch from Google via backend
           const res = await fetch(`${BACKEND_URL}/api/restaurants/nearby`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ lat: latitude, lng: longitude, radius: 1500 }),
           });
           const json = await res.json();
-          if (json.success) {
-            const list = json.data || [];
-            setNearbyRestaurants(list);
-            if (list.length === 0) {
-              setRestaurantsError("No restaurants found nearby.");
-            } else {
-              localStorage.setItem("hungrx_restaurants", JSON.stringify({
-                list, lat: latitude, lng: longitude, savedAt: now,
-              }));
-            }
-          } else {
-            setRestaurantsError(json.message || "Failed to fetch restaurants.");
+          if (!json.success) throw new Error(json.message || "Failed to fetch restaurants.");
+
+          const rawList = json.data || [];
+          if (rawList.length === 0) {
+            setRestaurantsError("No restaurants found nearby.");
+            setRestaurantsLoading(false);
+            return;
           }
+
+          // Step 2 — rank + personalize via Gemini ranker
+          console.log("🧠 Ranking restaurants with Gemini...");
+          let finalList = rawList;
+          let ctx = null;
+          try {
+            const rankRes = await fetch(`${BACKEND_URL}/api/restaurants/rank`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ restaurants: rawList, userId, lat: latitude, lng: longitude }),
+            });
+            const rankJson = await rankRes.json();
+            if (rankJson.success && rankJson.data?.length > 0) {
+              finalList = rankJson.data;
+              ctx = rankJson.user_context || null;
+              setRankContext({ ...ctx, personalization_score: rankJson.personalization_score });
+            }
+          } catch (e) {
+            console.warn("Ranking failed, using raw list:", e.message);
+          }
+
+          setNearbyRestaurants(finalList);
+          localStorage.setItem("hungrx_restaurants", JSON.stringify({
+            list: finalList, lat: latitude, lng: longitude, savedAt: now, rankContext: ctx,
+          }));
         } catch (e) {
           setRestaurantsError("Failed to fetch restaurants: " + e.message);
         } finally {
@@ -502,9 +748,53 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       return acc;
     }, {});
 
+  // ── AI log() ─────────────────────────────────────────────────
+  const log = useLogFeature(addItem, setCurrentView);
+
+  // ── Profile edit state ────────────────────────────────────────
+  const [profileData, setProfileData] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState("");
+
+  const loadProfile = async () => {
+    const userId = localStorage.getItem("hungrxUserId");
+    if (!userId) return;
+    setProfileLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}`);
+      const json = await res.json();
+      if (json.success) setProfileData(json.data);
+    } catch (e) { console.error("Profile load failed:", e.message); }
+    finally { setProfileLoading(false); }
+  };
+
+  const saveProfile = async () => {
+    const userId = localStorage.getItem("hungrxUserId");
+    if (!userId || !profileData) return;
+    setProfileSaving(true);
+    setProfileError("");
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profileData),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      setProfileData(json.data);
+      setProfileSaved(true);
+      setTimeout(() => { setProfileSaved(false); setCurrentView("main"); }, 1200);
+    } catch (e) {
+      setProfileError(e.message || "Save failed. Try again.");
+    } finally { setProfileSaving(false); }
+  };
+
+
   const s = {
-    outer: { minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a1a", fontFamily: "'JetBrains Mono', monospace", WebkitFontSmoothing: "antialiased", padding: "20px" },
-    frame: { width: "375px", height: "min(812px, calc(100dvh - 40px))", background: "#000", borderRadius: "54px", padding: "14px", boxShadow: "0 50px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(186,218,85,0.2) inset", position: "relative", flexShrink: 0 },
+    outer: { minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a1a", fontFamily: "'JetBrains Mono', monospace", WebkitFontSmoothing: "antialiased" },
+    frame: { width: "375px", maxWidth: "100%", height: "min(812px, calc(100dvh - 40px))", background: "#000", borderRadius: "54px", padding: "14px", boxShadow: "0 50px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(186,218,85,0.2) inset", position: "relative", flexShrink: 0 },
     inner: { width: "100%", height: "100%", background: "#1e1e1e", borderRadius: "40px", overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" },
     statusBar: { height: "44px", padding: "0 24px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingBottom: "8px", flexShrink: 0 },
     time: { fontSize: "15px", fontWeight: 600, letterSpacing: "-0.01em", color: "#bada55" },
@@ -567,10 +857,8 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const MenuView = () => {
     if (!currentRestaurant) return null;
     const data = menuCache[currentRestaurant.id];
-    const menu = data?.menu;
-    const recommendation = data?.recommended_order;
-    const summary = data?.order_summary;
-    const note = data?.concierge_note;
+    const recommendation = data?.concierge_recommendation;
+    const fullMenu = data?.menu; // normalized from full_menu.categories
 
     return (
       <div style={s.menuContainer}>
@@ -587,83 +875,105 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
         {/* Loading */}
         {menuLoading && (
           <div style={{ textAlign: "center", padding: "40px 0" }}>
-            <div style={{ fontSize: "11px", color: "#858585", marginBottom: "12px" }}>// your concierge is ordering...</div>
-            <div style={{ width: "100%", height: "2px", background: "#3e3e42", borderRadius: "2px", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: "60%", background: "#bada55", borderRadius: "2px", animation: "pulse 1.2s ease-in-out infinite" }} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+              <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em" }}>// ordering</span>
+              <div style={{ display: "flex", gap: "4px" }}>{[0,1,2].map((i) => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}</div>
             </div>
           </div>
         )}
 
         {!menuLoading && data && (<>
 
-          {/* Concierge note */}
-          {note && (
-            <div style={{ padding: "12px", background: "#1e3a1e", border: "1px solid #3a5a3a", borderRadius: "8px", marginBottom: "16px" }}>
-              <div style={{ fontSize: "9px", color: "#6ec46e", marginBottom: "4px", letterSpacing: "0.1em" }}>// CONCIERGE_NOTE</div>
-              <div style={{ fontSize: "11px", color: "#d4d4d4", fontStyle: "italic" }}>{note}</div>
-            </div>
-          )}
-
-          {/* Recommended order */}
-          {recommendation && recommendation.length > 0 && (
-            <div style={{ marginBottom: "16px" }}>
+          {/* ── CONCIERGE RECOMMENDATION ── */}
+          {recommendation && (
+            <div style={{ marginBottom: "20px" }}>
               <div style={{ fontSize: "10px", letterSpacing: "0.1em", marginBottom: "8px" }}>
-                <span style={s.comment}>// </span><span style={s.keyword}>RECOMMENDED_ORDER</span>
-                {summary && <span style={{ color: "#858585" }}> · {summary.total_calories} cal · ${summary.total_cost}</span>}
+                <span style={s.comment}>// </span><span style={s.keyword}>CONCIERGE_ORDER</span>
+                {recommendation.summary && (
+                  <span style={{ color: "#858585" }}>
+                    {" · "}{recommendation.summary.total_calories} cal
+                    {recommendation.summary.total_cost ? ` · ${userCurrency}${recommendation.summary.total_cost}` : ""}
+                  </span>
+                )}
               </div>
-              {recommendation.map((item, i) => (
+
+              {/* Concierge note */}
+              {recommendation.note && (
+                <div style={{ padding: "10px 12px", background: "#1e3a1e", border: "1px solid #3a5a3a", borderRadius: "6px", marginBottom: "10px" }}>
+                  <div style={{ fontSize: "9px", color: "#6ec46e", marginBottom: "3px", letterSpacing: "0.1em" }}>// CONCIERGE_NOTE</div>
+                  <div style={{ fontSize: "11px", color: "#d4d4d4", fontStyle: "italic" }}>{recommendation.note}</div>
+                </div>
+              )}
+
+              {/* Recommended items */}
+              {(recommendation.items || []).map((item, i) => (
                 <div key={i} style={{ padding: "12px", background: "#1a2a3a", border: "1px solid #2a4a6a", borderRadius: "6px", marginBottom: "8px" }}>
                   <div style={s.itemHeader}>
                     <span style={{ fontSize: "12px", color: "#bada55" }}>{item.item}</span>
-                    <span style={s.itemCal}>{item.calories} cal</span>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      {item.price && <span style={{ fontSize: "10px", color: "#858585" }}>{userCurrency}{item.price}</span>}
+                      <span style={s.itemCal}>{item.calories} cal</span>
+                    </div>
                   </div>
-                  <div style={{ fontSize: "9px", color: "#569cd6", margin: "4px 0", fontStyle: "italic" }}>{item.why_ordered}</div>
-                  <div style={{ ...s.itemMacros, marginBottom: "8px" }}>
+                  <div style={{ fontSize: "9px", color: "#569cd6", margin: "4px 0", fontStyle: "italic", lineHeight: 1.4 }}>{item.why_ordered}</div>
+                  <div style={{ ...s.itemMacros }}>
                     <span>P: {item.macros?.protein_g}g</span>
                     <span>C: {item.macros?.carbs_g}g</span>
                     <span>F: {item.macros?.fat_g}g</span>
-                    {item.price && <span style={{ color: "#858585" }}>${item.price}</span>}
+                    <span style={{ color: "#3e3e42" }}>{item.macro_source}</span>
                   </div>
                 </div>
               ))}
-              {/* Add full recommended order to log */}
-              <button style={{ ...s.addLogBtn, marginBottom: "16px" }} onClick={() => {
-                recommendation.forEach((item) => {
-                  addItem({
-                    name: item.item,
-                    calories: item.calories,
-                    protein: item.macros?.protein_g || 0,
-                    carbs: item.macros?.carbs_g || 0,
-                    fat: item.macros?.fat_g || 0,
-                  }, currentRestaurant.name + " · Concierge");
-                });
-                setCurrentView("main");
-              }}>
-                Add Concierge Order to Log
-              </button>
+
+              {/* Add concierge order to log */}
+              {recommendation.items?.length > 0 && (
+                <button style={{ ...s.addLogBtn, marginBottom: "8px" }} onClick={() => {
+                  (recommendation.items || []).forEach((item) => {
+                    addItem({
+                      name: item.item,
+                      calories: item.calories,
+                      protein: item.macros?.protein_g || 0,
+                      carbs: item.macros?.carbs_g || 0,
+                      fat: item.macros?.fat_g || 0,
+                    }, currentRestaurant.name + " · Concierge");
+                  });
+                  setCurrentView("main");
+                }}>
+                  Add Concierge Order to Log
+                </button>
+              )}
             </div>
           )}
 
-          {/* Full menu — all categories expanded */}
-          <div style={{ fontSize: "10px", letterSpacing: "0.1em", marginBottom: "8px" }}>
+          {/* ── FULL MENU ── */}
+          <div style={{ fontSize: "10px", letterSpacing: "0.1em", marginBottom: "10px", paddingTop: "4px", borderTop: "1px solid #2a2a2a" }}>
             <span style={s.comment}>// </span><span style={s.keyword}>FULL_MENU</span>
+            <span style={{ color: "#3e3e42", fontSize: "9px" }}> — tap any item to add</span>
           </div>
-          {(menu?.categories || []).map((category) => (
+          {(fullMenu?.categories || []).map((category) => (
             <div key={category.name} style={{ marginBottom: "16px" }}>
               <div style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em", marginBottom: "8px", paddingBottom: "4px", borderBottom: "1px solid #3e3e42" }}>
-                <span style={s.comment}>// </span><span style={{ color: "#569cd6" }}>{category.name.toUpperCase()}</span>
+                <span style={s.comment}>// </span><span style={{ color: "#569cd6" }}>{(category.name || "").toUpperCase()}</span>
               </div>
               {(category.items || []).map((item) => (
                 <button key={item.name} style={s.menuItem} onClick={() => addItem(item, currentRestaurant.name)}>
                   <div style={s.itemHeader}>
-                    <span style={{ fontSize: "12px" }}>{item.name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px" }}>{item.name}</span>
+                      {item.tier1_safe && (
+                        <span style={{ fontSize: "7px", color: "#6ec46e", border: "1px solid #6ec46e", borderRadius: "2px", padding: "1px 4px", letterSpacing: "0.05em" }}>✓ goal</span>
+                      )}
+                    </div>
                     <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                      {item.price && <span style={{ fontSize: "10px", color: "#858585" }}>${item.price}</span>}
+                      {item.price && <span style={{ fontSize: "10px", color: "#858585" }}>{userCurrency}{item.price}</span>}
                       <span style={s.itemCal}>{item.calories} cal</span>
                     </div>
                   </div>
                   {item.description && <div style={{ fontSize: "9px", color: "#858585" }}>{item.description}</div>}
-                  <div style={s.itemMacros}><span>P: {item.protein}g</span><span>C: {item.carbs}g</span><span>F: {item.fat}g</span></div>
+                  <div style={s.itemMacros}>
+                    <span>P: {item.protein}g</span><span>C: {item.carbs}g</span><span>F: {item.fat}g</span>
+                    {item.macro_source && <span style={{ color: "#3e3e42" }}>{item.macro_source}</span>}
+                  </div>
                 </button>
               ))}
             </div>
@@ -688,9 +998,9 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       {/* loading */}
       {geminiLoading && (
         <div style={{ textAlign: "center", padding: "40px 0" }}>
-          <div style={{ fontSize: "11px", color: "#858585", marginBottom: "12px" }}>// generating recipes...</div>
-          <div style={{ width: "100%", height: "2px", background: "#3e3e42", borderRadius: "2px", overflow: "hidden" }}>
-            <div style={{ height: "100%", width: "60%", background: "#bada55", borderRadius: "2px", animation: "pulse 1.2s ease-in-out infinite" }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+            <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em" }}>// curating</span>
+            <div style={{ display: "flex", gap: "4px" }}>{[0,1,2].map((i) => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}</div>
           </div>
         </div>
       )}
@@ -706,11 +1016,19 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
       {/* empty state — first load */}
       {!geminiLoading && !geminiError && geminiRecipes.length === 0 && (
         <div style={{ textAlign: "center", padding: "30px 0" }}>
-          <div style={{ fontSize: "11px", color: "#858585", marginBottom: "16px" }}>// personalised for you · powered by gemini</div>
+          <div style={{ fontSize: "11px", color: "#858585", marginBottom: "16px" }}>// real recipes · locally available · powered by gemini</div>
           <button className="hx-btn" style={{ ...s.optionBtn, alignItems: "center" }} onClick={fetchGeminiRecipes}>
             <span style={s.optionLabel}>// tap to generate</span>
             <span>generate()</span>
           </button>
+        </div>
+      )}
+
+      {/* availability region banner */}
+      {!geminiLoading && geminiRecipes.length > 0 && geminiAvailabilityRegion && (
+        <div style={{ padding: "10px 12px", background: "#1e2a1e", border: "1px solid #3a5a3a", borderRadius: "6px", marginBottom: "4px" }}>
+          <div style={{ fontSize: "9px", color: "#6ec46e", letterSpacing: "0.1em", marginBottom: "2px" }}>// LOCATION_FILTER_APPLIED</div>
+          <div style={{ fontSize: "10px", color: "#d4d4d4" }}>{geminiAvailabilityRegion}</div>
         </div>
       )}
 
@@ -730,7 +1048,10 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
             <span>F: {r.fat_g}g</span>
             <span>{r.cook_time_mins} min</span>
           </div>
-          <div style={{ fontSize: "9px", color: "#569cd6" }}>{r.cuisine} · {r.skill_level}</div>
+          <div style={{ fontSize: "9px", color: "#569cd6", marginBottom: "4px" }}>{r.cuisine} · {r.skill_level}</div>
+          {r.why_picked && (
+            <div style={{ fontSize: "8px", color: "#858585", fontStyle: "italic", lineHeight: 1.4 }}>{r.why_picked}</div>
+          )}
         </button>
       ))}
 
@@ -835,17 +1156,20 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
         .hx-btn:active { transform: scale(0.98); }
         .hx-remove:hover { background: rgba(244,135,113,0.1) !important; }
         @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
-        @media (max-width: 440px) {
-          .hx-frame { max-width: 100% !important; height: 100dvh !important; border-radius: 0 !important; padding: 0 !important; }
+        @media (max-width: 550px) {
+          .hx-outer { padding: 0 !important; align-items: stretch !important; }
+          .hx-frame { width: 100% !important; max-width: 100% !important; height: 100dvh !important; border-radius: 0 !important; padding: 0 !important; background: #1e1e1e !important; box-shadow: none !important; }
           .hx-inner { border-radius: 0 !important; }
+          .hx-statusbar { display: none !important; }
+          .hx-homebar { display: none !important; }
         }
       `}</style>
-      <div style={s.outer}>
+      <div style={{ ...s.outer, padding: "20px" }} className="hx-outer">
         <div style={s.frame} className="hx-frame">
           <div style={s.inner} className="hx-inner">
 
             {/* Status Bar */}
-            <div style={{ ...s.statusBar, position: "relative" }}>
+            <div className="hx-statusbar" style={{ ...s.statusBar, position: "relative" }}>
               <span style={s.time}>{currentTime}</span>
               <div style={s.notch} />
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -873,11 +1197,16 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                     <span style={s.comment}>// </span>
                     <span style={s.keyword}>DAILY_LIMIT</span>
                   </div>
-                  {onLogout && (
-                    <button onClick={onLogout} style={{ background: "transparent", border: "none", color: "#858585", fontSize: "10px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
-                      logout()
+                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                    <button onClick={() => setCurrentView("profile")} style={{ background: "transparent", border: "none", color: "#858585", fontSize: "10px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
+                      profile()
                     </button>
-                  )}
+                    {onLogout && (
+                      <button onClick={onLogout} style={{ background: "transparent", border: "none", color: "#858585", fontSize: "10px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
+                        logout()
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={s.calDisplay}>
                   {logLoading
@@ -915,30 +1244,6 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                         <div style={s.macroRow}><div style={s.macroDot(color)} /><span style={s.macroLabel}>{label}</span></div>
                         <div style={s.macroVal}>{val}{unit} / {target}{unit}</div>
                         <div style={s.microBar}><div style={s.microFill((val / target) * 100, color)} /></div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Micros */}
-              <div style={{ borderBottom: "1px solid #3e3e42" }}>
-                <button style={s.collapsibleBtn} onClick={() => setMicrosOpen(!microsOpen)}>
-                  <div style={s.sectionHeader}><span style={s.comment}>// </span><span style={s.keyword}>MICROS</span></div>
-                  <span style={s.arrow(microsOpen)}>›</span>
-                </button>
-                {microsOpen && (
-                  <div style={s.collapsibleContent}>
-                    {[
-                      { label: "Sodium",      val: 0, target: 2300, color: "#ce9178", unit: "mg" },
-                      { label: "Fiber",       val: 0, target: 30,   color: "#9cdcfe", unit: "g"  },
-                      { label: "Sugar",       val: 0, target: 50,   color: "#c586c0", unit: "g"  },
-                      { label: "Cholesterol", val: 0, target: 300,  color: "#dcdcaa", unit: "mg" },
-                    ].map(({ label, val, target, color, unit }) => (
-                      <div key={label}>
-                        <div style={s.macroRow}><div style={s.macroDot(color)} /><span style={s.macroLabel}>{label}</span></div>
-                        <div style={s.macroVal}>{val}{unit} / {target}{unit}</div>
-                        <div style={s.microBar}><div style={s.microFill(0, color)} /></div>
                       </div>
                     ))}
                   </div>
@@ -995,6 +1300,10 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                     <span style={s.optionLabel}>// ready-to-eat</span>
                     <span>grab()</span>
                   </button>
+                  <button className="hx-btn" style={{ ...s.optionBtn, borderColor: "#3a4a3a" }} onClick={() => { log.resetLog(); setCurrentView("log"); }}>
+                    <span style={{ ...s.optionLabel, color: "#6ec46e" }}>// just describe it</span>
+                    <span>log()</span>
+                  </button>
                   <button style={s.backBtn} onClick={() => setCurrentView("main")}>‹ BACK</button>
                 </div>
               )}
@@ -1020,9 +1329,9 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                   {/* Loading */}
                   {restaurantsLoading && (
                     <div style={{ textAlign: "center", padding: "40px 0" }}>
-                      <div style={{ fontSize: "11px", color: "#858585", marginBottom: "12px" }}>// scanning nearby...</div>
-                      <div style={{ width: "100%", height: "2px", background: "#3e3e42", borderRadius: "2px", overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: "60%", background: "#bada55", borderRadius: "2px", animation: "pulse 1.2s ease-in-out infinite" }} />
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em" }}>// scanning</span>
+                        <div style={{ display: "flex", gap: "4px" }}>{[0,1,2].map((i) => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}</div>
                       </div>
                     </div>
                   )}
@@ -1037,9 +1346,18 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                     </div>
                   )}
 
+                  {/* Rank context banner */}
+                  {!restaurantsLoading && rankContext && nearbyRestaurants.length > 0 && (
+                    <div style={{ padding: "10px 12px", background: "#1e2a1e", border: "1px solid #3a5a3a", borderRadius: "6px", marginBottom: "4px" }}>
+                      <div style={{ fontSize: "9px", color: "#6ec46e", letterSpacing: "0.1em", marginBottom: "3px" }}>// RANKED_FOR_YOU · {rankContext.personalization_score || "personalised"}</div>
+                      <div style={{ fontSize: "10px", color: "#d4d4d4" }}>{rankContext.meal_moment} · {rankContext.inferred_mood} mood</div>
+                    </div>
+                  )}
+
                   {/* Real restaurants */}
                   {!restaurantsLoading && nearbyRestaurants.map((r) => {
                     const isCached = !!menuCache[r.id];
+                    const freshnessColor = r.freshness_tag === "new" ? "#6ec46e" : r.freshness_tag === "returning favourite" ? "#bada55" : "#858585";
                     return (
                       <button className="hx-btn" key={r.id} style={s.restaurantBtn} onClick={() => openRestaurant(r)}>
                         <div style={{ ...s.restIcon, background: r.openNow === false ? "#3e3e42" : "#bada55", color: r.openNow === false ? "#858585" : "#000", position: "relative" }}>
@@ -1048,16 +1366,22 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                             <div style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, background: "#6ec46e", borderRadius: "50%", border: "1px solid #1e1e1e" }} />
                           )}
                         </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "3px", flex: 1 }}>
                           <span style={{ fontSize: "13px" }}>{r.name}</span>
                           <span style={{ fontSize: "9px", color: "#858585" }}>{r.vicinity}</span>
-                          <div style={{ display: "flex", gap: "8px", fontSize: "9px" }}>
+                          <div style={{ display: "flex", gap: "8px", fontSize: "9px", flexWrap: "wrap" }}>
                             {r.rating && <span style={{ color: "#bada55" }}>★ {r.rating}</span>}
                             {r.openNow === true && <span style={{ color: "#6ec46e" }}>● open</span>}
                             {r.openNow === false && <span style={{ color: "#f48771" }}>● closed</span>}
-                            {r.priceLevel && <span style={{ color: "#858585" }}>{"$".repeat(r.priceLevel)}</span>}
+                            {r.priceLevel && <span style={{ color: "#858585" }}>{userCurrency.repeat(r.priceLevel)}</span>}
                             {isCached && <span style={{ color: "#6ec46e" }}>· menu ready</span>}
                           </div>
+                          {r.freshness_tag && (
+                            <div style={{ fontSize: "8px", color: freshnessColor, letterSpacing: "0.05em" }}>// {r.freshness_tag}</div>
+                          )}
+                          {r.why_picked && (
+                            <div style={{ fontSize: "8px", color: "#569cd6", fontStyle: "italic", lineHeight: 1.4 }}>{r.why_picked}</div>
+                          )}
                         </div>
                         <div style={{ fontSize: "16px", color: "#3e3e42" }}>›</div>
                       </button>
@@ -1091,9 +1415,9 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                   {/* Loading */}
                   {grabLoading && (
                     <div style={{ textAlign: "center", padding: "40px 0" }}>
-                      <div style={{ fontSize: "11px", color: "#858585", marginBottom: "12px" }}>// curating your grocery list...</div>
-                      <div style={{ width: "100%", height: "2px", background: "#3e3e42", borderRadius: "2px", overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: "60%", background: "#bada55", borderRadius: "2px", animation: "pulse 1.2s ease-in-out infinite" }} />
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em" }}>// finding</span>
+                        <div style={{ display: "flex", gap: "4px" }}>{[0,1,2].map((i) => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}</div>
                       </div>
                     </div>
                   )}
@@ -1109,7 +1433,7 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                   {/* Empty state */}
                   {!grabLoading && !grabError && !grabData && (
                     <div style={{ textAlign: "center", padding: "30px 0" }}>
-                      <div style={{ fontSize: "11px", color: "#858585", marginBottom: "16px" }}>// real products · personalised · powered by gemini</div>
+                      <div style={{ fontSize: "11px", color: "#858585", marginBottom: "16px" }}>// real products · local brands · powered by gemini</div>
                       <button className="hx-btn" style={{ ...s.optionBtn, alignItems: "center" }} onClick={fetchGrabItems}>
                         <span style={s.optionLabel}>// tap to curate</span>
                         <span>grab()</span>
@@ -1117,10 +1441,21 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                     </div>
                   )}
 
+                  {/* Location + availability banner */}
+                  {!grabLoading && grabData?.availability_region && (
+                    <div style={{ padding: "10px 12px", background: "#1e2a1e", border: "1px solid #3a5a3a", borderRadius: "6px", marginBottom: "4px" }}>
+                      <div style={{ fontSize: "9px", color: "#6ec46e", letterSpacing: "0.1em", marginBottom: "2px" }}>// LOCATION_FILTER_APPLIED</div>
+                      <div style={{ fontSize: "10px", color: "#d4d4d4" }}>{grabData.availability_region}</div>
+                      {grabData.user_context?.nearby_stores && (
+                        <div style={{ fontSize: "9px", color: "#858585", marginTop: "2px" }}>{grabData.user_context.nearby_stores}</div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Curator note */}
                   {!grabLoading && grabData?.curator_note && (
-                    <div style={{ padding: "12px", background: "#1e3a1e", border: "1px solid #3a5a3a", borderRadius: "8px", marginBottom: "16px" }}>
-                      <div style={{ fontSize: "9px", color: "#6ec46e", marginBottom: "4px", letterSpacing: "0.1em" }}>// CURATOR_NOTE</div>
+                    <div style={{ padding: "10px 12px", background: "#252526", border: "1px solid #3e3e42", borderRadius: "6px", marginBottom: "4px" }}>
+                      <div style={{ fontSize: "9px", color: "#569cd6", marginBottom: "2px", letterSpacing: "0.1em" }}>// CURATOR_NOTE</div>
                       <div style={{ fontSize: "11px", color: "#d4d4d4", fontStyle: "italic" }}>{grabData.curator_note}</div>
                     </div>
                   )}
@@ -1150,14 +1485,33 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
                               <span>P: {item.macros?.protein_g}g</span>
                               <span>C: {item.macros?.carbs_g}g</span>
                               <span>F: {item.macros?.fat_g}g</span>
-                              {item.price_approx && <span style={{ color: "#6ec46e" }}>${item.price_approx}</span>}
+                              {item.price_approx && <span style={{ color: "#6ec46e" }}>{grabCurrency}{item.price_approx}</span>}
                             </div>
+                            {item.why_picked && (
+                              <div style={{ fontSize: "8px", color: "#569cd6", fontStyle: "italic", lineHeight: 1.4 }}>{item.why_picked}</div>
+                            )}
                           </div>
                           <span style={s.grabCal}>{item.calories} cal</span>
                         </button>
                       ))}
                     </div>
                   ))}
+
+                  {/* Session summary */}
+                  {!grabLoading && grabData?.session_summary && (
+                    <div style={{ padding: "10px 12px", background: "#252526", border: "1px solid #3e3e42", borderRadius: "6px", marginBottom: "8px" }}>
+                      <div style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.08em", marginBottom: "4px" }}>// session_summary</div>
+                      <div style={{ display: "flex", gap: "16px", fontSize: "9px", color: "#d4d4d4", flexWrap: "wrap" }}>
+                        <span>{grabData.session_summary.total_items} items across {grabData.session_summary.total_categories} categories</span>
+                        {grabData.session_summary.estimated_total_if_all_bought > 0 && (
+                          <span style={{ color: "#6ec46e" }}>est. total {grabCurrency}{grabData.session_summary.estimated_total_if_all_bought}</span>
+                        )}
+                        {grabData.session_summary.new_category_introduced && (
+                          <span style={{ color: "#569cd6" }}>new: {grabData.session_summary.new_category_introduced}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Refresh */}
                   {!grabLoading && grabData && (
@@ -1179,7 +1533,103 @@ const HungrXDashboard = ({ userData = {}, onLogout }) => {
               </div>
             )}
 
-            <div style={s.homeBar} />
+            {/* ── PROFILE VIEW — full overlay ── */}
+            {currentView === "profile" && (() => {
+              if (!profileData && !profileLoading) loadProfile();
+              const field = (key, label, type = "text", opts = null) => (
+                <div style={{ marginBottom: "14px" }} key={key}>
+                  <div style={{ fontSize: "8px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "5px" }}>{label}</div>
+                  {opts
+                    ? <select value={profileData?.[key] || ""} onChange={(e) => setProfileData((p) => ({ ...p, [key]: e.target.value }))}
+                        style={{ width: "100%", background: "#252526", border: "1px solid #3e3e42", borderRadius: "4px", color: "#d4d4d4", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", padding: "9px 10px", outline: "none" }}>
+                        <option value="">Select...</option>
+                        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    : <input type={type} value={profileData?.[key] || ""} onChange={(e) => setProfileData((p) => ({ ...p, [key]: e.target.value }))}
+                        style={{ width: "100%", background: "#252526", border: "1px solid #3e3e42", borderRadius: "4px", color: "#d4d4d4", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", padding: "9px 10px", outline: "none", boxSizing: "border-box" }} />
+                  }
+                </div>
+              );
+              return (
+                <div style={{ position: "absolute", inset: 0, background: "#1e1e1e", borderRadius: "inherit", display: "flex", flexDirection: "column", zIndex: 10, overflowY: "auto" }}>
+                  {/* Header */}
+                  <div style={{ padding: "20px 24px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, borderBottom: "1px solid #2a2a2a" }}>
+                    <div>
+                      <div style={{ fontSize: "10px", color: "#858585", letterSpacing: "0.08em" }}><span style={{ color: "#858585" }}>// </span><span style={{ color: "#569cd6" }}>PROFILE</span></div>
+                      <div style={{ fontSize: "11px", color: "#858585", marginTop: "2px" }}>edit your details</div>
+                    </div>
+                    <button onClick={() => setCurrentView("main")} style={{ background: "none", border: "none", color: "#555", fontSize: "22px", cursor: "pointer", lineHeight: 1 }}>×</button>
+                  </div>
+
+                  {profileLoading && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", padding: "40px 0" }}>
+                      <span style={{ fontSize: "9px", color: "#858585", letterSpacing: "0.1em" }}>// loading</span>
+                      <div style={{ display: "flex", gap: "4px" }}>{[0,1,2].map((i) => <div key={i} style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#bada55", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}</div>
+                    </div>
+                  )}
+
+                  {!profileLoading && profileData && (
+                    <div style={{ padding: "20px 24px 32px", flex: 1 }}>
+                      {/* Body */}
+                      <div style={{ fontSize: "9px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "14px" }}>// BODY</div>
+                      {field("age", "AGE", "number")}
+                      {field("gender", "BIOLOGICAL SEX", "select", ["Male", "Female", "Other"])}
+                      {field("height", "HEIGHT (cm)", "number")}
+                      {field("weight", "WEIGHT (kg)", "number")}
+
+                      {/* Goals */}
+                      <div style={{ fontSize: "9px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "14px", marginTop: "6px" }}>// GOALS</div>
+                      {field("primaryGoal", "PRIMARY GOAL", "select", ["Lose Weight", "Gain Weight", "Maintain Weight"])}
+                      {field("specificTarget", "SPECIFIC TARGET", "text")}
+                      {field("secondaryGoals", "SECONDARY GOALS", "text")}
+                      {field("activityLevel", "ACTIVITY LEVEL", "select", ["Sedentary", "Lightly Active", "Moderately Active", "Very Active", "Extremely Active"])}
+
+                      {/* Food */}
+                      <div style={{ fontSize: "9px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "14px", marginTop: "6px" }}>// FOOD</div>
+                      {field("eatingPattern", "EATING PATTERN", "text")}
+                      {field("restrictions", "DIETARY RESTRICTIONS", "text")}
+                      {field("dislikes", "FOOD DISLIKES", "text")}
+                      {field("favorites", "FAVOURITE FOODS", "text")}
+                      {field("budget", "DAILY FOOD BUDGET", "text")}
+
+                      {/* Cooking */}
+                      <div style={{ fontSize: "9px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "14px", marginTop: "6px" }}>// COOKING</div>
+                      {field("cookingSkill", "COOKING SKILL", "select", ["Beginner - Don't enjoy", "Beginner - Enjoy learning", "Intermediate", "Advanced - Love cooking"])}
+                      {field("cookingTime", "TIME FOR COOKING", "text")}
+
+                      {/* Health */}
+                      <div style={{ fontSize: "9px", color: "#569cd6", letterSpacing: "0.1em", marginBottom: "14px", marginTop: "6px" }}>// HEALTH</div>
+                      {field("healthConditions", "HEALTH CONDITIONS", "text")}
+                      {field("sleepEnergy", "SLEEP & ENERGY", "text")}
+                      {field("obstacles", "PAST OBSTACLES", "text")}
+
+                      {/* TDEE display — read only */}
+                      {profileData.tdee && (
+                        <div style={{ padding: "12px", background: "#252526", border: "1px solid #3e3e42", borderRadius: "6px", marginBottom: "16px", marginTop: "8px" }}>
+                          <div style={{ fontSize: "9px", color: "#858585", marginBottom: "6px" }}>// recalculated on save</div>
+                          <div style={{ display: "flex", gap: "16px", fontSize: "11px" }}>
+                            <span style={{ color: "#858585" }}>TDEE <span style={{ color: "#bada55" }}>{profileData.tdee}</span></span>
+                            <span style={{ color: "#858585" }}>TARGET <span style={{ color: "#bada55" }}>{profileData.dailyCalorieTarget}</span></span>
+                            <span style={{ color: "#858585" }}>BMI <span style={{ color: "#bada55" }}>{profileData.bmi?.toFixed(1)}</span></span>
+                          </div>
+                        </div>
+                      )}
+
+                      {profileError && <div style={{ fontSize: "10px", color: "#f48771", marginBottom: "12px" }}><span style={{ color: "#858585" }}>// </span>{profileError}</div>}
+
+                      <button onClick={saveProfile} disabled={profileSaving} style={{ width: "100%", padding: "16px", background: "transparent", border: `1px solid ${profileSaved ? "#6ec46e" : "#bada55"}`, borderRadius: "8px", color: profileSaved ? "#6ec46e" : "#bada55", fontSize: "13px", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.04em", opacity: profileSaving ? 0.6 : 1 }}>
+                        {profileSaved ? "✓  saved" : profileSaving ? "saving..." : "save()"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── LOG VIEW — full overlay ── */}
+            {currentView === "log" && <LogView log={log} setCurrentView={setCurrentView} />}
+
+            <div className="hx-homebar" style={s.homeBar} />
           </div>
         </div>
       </div>

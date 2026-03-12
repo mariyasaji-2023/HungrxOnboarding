@@ -14,7 +14,7 @@ router.post(
   async (req, res) => {
     try {
       const {
-        name, age, gender, height, weight,
+        name, password, age, gender, height, weight,
         primaryGoal, specificTarget, secondaryGoals,
         activityLevel, eatingPattern, restrictions,
         dislikes, favorites, budget, cookingSkill,
@@ -24,6 +24,7 @@ router.post(
       // Create new user document
       const user = new User({
         name,
+        password,
         age: Number(age),
         gender,
         height: Number(height),
@@ -82,6 +83,36 @@ router.post(
 // GET /api/users/:id
 // Fetch a user's profile by ID
 // ────────────────────────────────────────────────────────────────
+
+// ── Login ─────────────────────────────────────────────────────
+router.post("/login", async (req, res) => {
+  try {
+    const { name, password } = req.body;
+    if (!name || !password)
+      return res.status(400).json({ success: false, message: "Name and password required." });
+
+    const user = await User.findOne({ name: { $regex: new RegExp(`^${name}$`, "i") } });
+    if (!user)
+      return res.status(404).json({ success: false, code: "USER_NOT_FOUND", message: "No account found. Let's set one up!" });
+
+    if (!user.password || user.password !== password)
+      return res.status(401).json({ success: false, code: "WRONG_PASSWORD", message: "Incorrect password." });
+
+    res.json({
+      success: true,
+      data: {
+        userId: user._id,
+        name: user.name,
+        dailyCalorieTarget: user.dailyCalorieTarget,
+        tdee: user.tdee,
+        macroTargets: user.macroTargets,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
@@ -109,6 +140,27 @@ router.get("/:id", async (req, res) => {
 
 // ── PATCH /api/users/:userId/location ────────────────────────
 // Called on dashboard mount (first time) and on out() click (if changed)
+// ── Set / reset password ──────────────────────────────────────
+router.patch("/set-password", async (req, res) => {
+  try {
+    const { name, password } = req.body;
+    if (!name || !password)
+      return res.status(400).json({ success: false, message: "Name and password required." });
+
+    const user = await User.findOneAndUpdate(
+      { name: { $regex: new RegExp(`^${name}$`, "i") } },
+      { password },
+      { new: true }
+    );
+    if (!user)
+      return res.status(404).json({ success: false, message: "User not found." });
+
+    res.json({ success: true, message: `Password set for ${user.name}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.patch("/:userId/location", async (req, res) => {
   try {
     const { lat, lng } = req.body;
@@ -136,6 +188,39 @@ router.patch("/:userId/location", async (req, res) => {
 
     // Not changed — no DB write needed
     res.json({ success: true, updated: false, data: { lat, lng } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── PATCH /api/users/:userId/profile ─────────────────────────
+// Update editable profile fields — recalculates TDEE + targets on save
+router.patch("/:userId/profile", async (req, res) => {
+  try {
+    const allowed = [
+      "age", "gender", "height", "weight",
+      "primaryGoal", "specificTarget", "secondaryGoals",
+      "activityLevel", "eatingPattern",
+      "restrictions", "dislikes", "favorites",
+      "budget", "cookingSkill", "cookingTime",
+      "healthConditions", "sleepEnergy", "obstacles",
+    ];
+    const updates = {};
+    allowed.forEach((f) => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    Object.assign(user, updates);
+    await user.save(); // triggers pre-save hook → recalculates BMI, BMR, TDEE, calorie target
+
+    res.json({
+      success: true,
+      data: {
+        ...user.toObject(),
+        macroTargets: user.getMacroTargets(),
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

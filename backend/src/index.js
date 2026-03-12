@@ -13,11 +13,20 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
+// Extend timeout for AI routes (Gemini can take 30-60s)
+app.use((req, res, next) => {
+  res.setTimeout(90000, () => {
+    res.status(503).json({ success: false, message: "Request timed out — Gemini took too long. Please try again." });
+  });
+  next();
+});
+
 app.use("/api/users",       require("./routes/users"));
 app.use("/api/cook",        require("./routes/cook"));
 app.use("/api/logs",        require("./routes/logs"));
 app.use("/api/restaurants", require("./routes/restaurants"));
 app.use("/api/grab",        require("./routes/grab"));
+app.use("/api/logparse",   require("./routes/parseLog"));
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 

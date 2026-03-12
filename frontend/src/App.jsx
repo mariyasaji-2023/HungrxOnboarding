@@ -1,71 +1,59 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import HungrXOnboarding from "./HungrXOnboarding";
 import HungrXDashboard from "./HungrXDashboard";
-
-const BACKEND_URL = "https://hungrxonboarding.onrender.com";
+import HungrXLogin from "./HungrXLogin";
 
 function App() {
-  const [screen, setScreen] = useState("loading");
-  const [userData, setUserData] = useState(null);
-
-  // On mount — check if user already logged in, load their data
-  useEffect(() => {
-    const userId = localStorage.getItem("hungrxUserId");
-    if (!userId) {
-      setScreen("onboarding");
-      return;
-    }
-    fetch(`${BACKEND_URL}/api/users/${userId}`)
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.success && json.data) {
-          setUserData(json.data);
-          setScreen("dashboard");
-        } else {
-          localStorage.removeItem("hungrxUserId");
-          setScreen("onboarding");
-        }
-      })
-      .catch(() => {
-        // Network error — still show dashboard
-        setScreen("dashboard");
-      });
-  }, []);
-
-  const handleGetStarted = (data) => {
-    setUserData(data);
-    setScreen("dashboard");
-  };
+  // sessionStorage persists on refresh but clears when tab/browser closes
+  const [screen, setScreen] = useState(() => {
+    return sessionStorage.getItem("hungrxSession") ? "dashboard" : "login";
+  });
+  const [userData, setUserData] = useState(() => {
+    const saved = sessionStorage.getItem("hungrxUserData");
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [onboardingPrefill, setOnboardingPrefill] = useState({});
 
   const handleLogout = () => {
-    localStorage.removeItem("hungrxUserId");
+    sessionStorage.removeItem("hungrxSession");
+    sessionStorage.removeItem("hungrxUserData");
     setUserData(null);
-    setScreen("onboarding");
+    setOnboardingPrefill({});
+    setScreen("login");
   };
 
-  if (screen === "loading") {
-    return (
-      <div style={{
-        minHeight: "100dvh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#1a1a1a",
-        fontFamily: "'JetBrains Mono', monospace",
-        color: "#bada55",
-        fontSize: "13px",
-        letterSpacing: "0.1em",
-      }}>
-        // loading...
-      </div>
-    );
-  }
-
-  if (screen === "dashboard") {
+  if (screen === "dashboard")
     return <HungrXDashboard userData={userData || {}} onLogout={handleLogout} />;
-  }
 
-  return <HungrXOnboarding onComplete={handleGetStarted} />;
+  if (screen === "login")
+    return (
+      <HungrXLogin
+        onLogin={(data) => {
+          sessionStorage.setItem("hungrxSession", "1");
+          sessionStorage.setItem("hungrxUserData", JSON.stringify(data));
+          localStorage.setItem("hungrxUserId", data.userId); // keep for API calls
+          setUserData(data);
+          setScreen("dashboard");
+        }}
+        onNewUser={(credentials) => {
+          setOnboardingPrefill(credentials);
+          setScreen("onboarding");
+        }}
+      />
+    );
+
+  return (
+    <HungrXOnboarding
+      prefill={onboardingPrefill}
+      onComplete={(data) => {
+        sessionStorage.setItem("hungrxSession", "1");
+        sessionStorage.setItem("hungrxUserData", JSON.stringify(data));
+        localStorage.setItem("hungrxUserId", data.userId);
+        setUserData(data);
+        setScreen("dashboard");
+      }}
+    />
+  );
 }
 
 export default App;

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 
-const HungrXOnboarding = ({ onComplete }) => {
+const HungrXOnboarding = ({ onComplete, prefill = {} }) => {
   const [messages, setMessages] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [userData, setUserData] = useState({
-    name: "", age: "", gender: "", height: "", weight: "",
+    name: prefill.name || "", age: "", gender: "", height: "", weight: "",
     primaryGoal: "", specificTarget: "", secondaryGoals: "",
     activityLevel: "", eatingPattern: "", restrictions: "",
     dislikes: "", favorites: "", budget: "", cookingSkill: "",
@@ -24,11 +24,12 @@ const HungrXOnboarding = ({ onComplete }) => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  const steps = [
+  const allSteps = [
     { message: "Hello.", delay: 100, showInput: false },
     { message: "This is hungrX.", delay: 100, showInput: false },
     { message: "What's your name?", field: "name", inputType: "text", placeholder: "Your Name", delay: 100 },
-    { message: "Hello, [name]. Your age?", field: "age", inputType: "number", placeholder: "Your Age", delay: 100 },
+    { message: "Hello, [name].", delay: 100, showInput: false },
+    { message: "Your age?", field: "age", inputType: "number", placeholder: "Your Age", delay: 100 },
     { message: "Biological sex?", field: "gender", inputType: "select", options: ["Male", "Female", "Other"], delay: 100 },
     { message: "Height in cm?", field: "height", inputType: "number", placeholder: "Your Height", delay: 100 },
     { message: "Weight in kg?", field: "weight", inputType: "number", placeholder: "Your Weight", delay: 100 },
@@ -49,6 +50,10 @@ const HungrXOnboarding = ({ onComplete }) => {
     { message: "One more thing.", delay: 100, showInput: false },
   ];
 
+  const steps = prefill.name
+    ? allSteps.filter((s) => s.field !== "name" && s.message !== "Hello." && s.message !== "This is hungrX.")
+    : allSteps;
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -63,6 +68,8 @@ const HungrXOnboarding = ({ onComplete }) => {
     }
   }, [isComplete]);
 
+  const stepFiredRef = useRef(-1);
+
   useEffect(() => {
     if (currentStep < steps.length) simulateTyping();
   }, [currentStep]);
@@ -72,6 +79,8 @@ const HungrXOnboarding = ({ onComplete }) => {
   }, [showInput]);
 
   const simulateTyping = () => {
+    if (stepFiredRef.current === currentStep) return;
+    stepFiredRef.current = currentStep;
     setShowInput(false);
     setShowOptions(false);
     const step = steps[currentStep];
@@ -125,10 +134,10 @@ const HungrXOnboarding = ({ onComplete }) => {
     setIsLoading(true);
     setApiError("");
     try {
-      const res = await fetch("https://hungrxonboarding.onrender.com/api/users/onboarding", {
+      const res = await fetch("http://localhost:5000/api/users/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(userData),
+        body: JSON.stringify({ ...userData, password: prefill.password || undefined }),
       });
       const result = await res.json();
       if (result.success) {
