@@ -134,7 +134,7 @@ const HungrXOnboarding = ({ onComplete, prefill = {} }) => {
     setIsLoading(true);
     setApiError("");
     try {
-      const res = await fetch("http://localhost:5000/api/users/onboarding", {
+      const res = await fetch("https://hungrxonboarding.onrender.com/api/users/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userData),
