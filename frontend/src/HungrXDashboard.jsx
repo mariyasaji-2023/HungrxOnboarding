@@ -89,7 +89,7 @@ const useLogFeature = (addItem, setCurrentView) => {
     if (!logInput.trim() || logParsing) return;
     setLogParsing(true); setLogError(""); setLogResults([]); setLogConfirmed(false);
     try {
-      const response = await fetch(`https://hungrxonboarding.onrender.com/api/logparse/parse`, {
+      const response = await fetch(`http://localhost:5000/api/logparse/parse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: logInput }),
@@ -180,7 +180,7 @@ const LogView = ({ log, setCurrentView }) => {
   );
 };
 
-const BACKEND_URL = "https://hungrxonboarding.onrender.com";
+const BACKEND_URL = "http://localhost:5000";
 
 const HungrXDashboard = ({ userData = {}, onLogout }) => {
   const [totalCalories, setTotalCalories] = useState(0);

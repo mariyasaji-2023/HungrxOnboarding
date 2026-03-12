@@ -94,7 +94,7 @@ router.post("/login", async (req, res) => {
     const user = await User.findOne({ name: { $regex: new RegExp(`^${name}$`, "i") } });
 
     if (!user)
-      return res.status(404).json({ success: false, message: "No account found. Please complete onboarding first." });
+      return res.status(404).json({ success: false, code: "USER_NOT_FOUND", message: "No account found." });
 
     // First login after onboarding — save the password they choose
     if (!user.password) {

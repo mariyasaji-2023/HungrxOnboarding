@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 
-const BACKEND_URL = "https://hungrxonboarding.onrender.com";
+const BACKEND_URL = "http://localhost:5000";
 
-const HungrXLogin = ({ onLogin, prefillName = "" }) => {
+const HungrXLogin = ({ onLogin, onNewUser, prefillName = "" }) => {
   const [name, setName] = useState(prefillName);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,6 +34,8 @@ const HungrXLogin = ({ onLogin, prefillName = "" }) => {
       if (json.success) {
         localStorage.setItem("hungrxUserId", json.data.userId);
         onLogin && onLogin(json.data);
+      } else if (json.code === "USER_NOT_FOUND") {
+        onNewUser && onNewUser(name.trim());
       } else {
         setError(json.message || "invalid credentials.");
       }
